@@ -3,29 +3,51 @@
 No ML, no external calls at request time. All math is vectorised with numpy
 over the 16x16x16 IV grid so a full brute-force search stays sub-millisecond.
 """
+import json
 import math
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 
-# Integer-level CPMs from the game master (see references/calibration.md).
-INT_CPM = {
-    1: 0.094, 2: 0.16639787, 3: 0.21573247, 4: 0.25572005, 5: 0.29024988,
-    6: 0.3210876, 7: 0.34921268, 8: 0.3752356, 9: 0.39956728, 10: 0.4225,
-    11: 0.44310755, 12: 0.46279839, 13: 0.48168495, 14: 0.49985844, 15: 0.51739395,
-    16: 0.5343277, 17: 0.5507927, 18: 0.5668094, 19: 0.5824596, 20: 0.5977679,
-    21: 0.6127566, 22: 0.6274445, 23: 0.6418475, 24: 0.6559804, 25: 0.6698589,
-    26: 0.6834955, 27: 0.6969034, 28: 0.7100906, 29: 0.7230753, 30: 0.7317,
-    31: 0.73776948, 32: 0.74378943, 33: 0.74976104, 34: 0.75568551, 35: 0.76156384,
-    36: 0.76739717, 37: 0.7731865, 38: 0.77893275, 39: 0.78463697, 40: 0.7903,
-    41: 0.79530001, 42: 0.8003, 43: 0.8053, 44: 0.8103, 45: 0.8153,
-    46: 0.8203, 47: 0.8253, 48: 0.8303, 49: 0.8353, 50: 0.84029999,
-    51: 0.84529999,
-}
+# Integer-level CPMs, loaded from data/species.json, which build_data.py
+# extracts verbatim from the PokeMiners game master -- the authoritative
+# source Niantic actually ships.
+#
+# DO NOT re-hardcode this table. A previously hardcoded copy silently carried
+# wrong values across levels 16-29 and 31-41 (e.g. L20 0.5977679 instead of
+# the real 0.5974, L28 0.7100906 instead of 0.7068842). The errors are tiny
+# in absolute terms but shift computed CP by 10-25 points, which is enough to
+# make a genuine 15/15/15 fail to reconcile and get mis-reported as ~93%.
+# Every unreconcilable real-screenshot case turned out to sit in that
+# corrupted band. Anchors at L1/10/15/30/35/40/45 happened to be correct,
+# which is exactly why the bug survived earlier spot-checks -- verify the
+# whole curve against the game master, never a handful of round levels.
+MAX_LEVEL = 51  # highest level obtainable in game (Best Buddy boost from 50)
+
+_DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "species.json"
+
+
+def _load_int_cpm():
+    with open(_DATA_PATH) as f:
+        raw = json.load(f)["cpm"]
+    return {
+        int(lvl): value
+        for lvl, value in raw.items()
+        if value is not None and int(lvl) <= MAX_LEVEL
+    }
+
+
+INT_CPM = _load_int_cpm()
 
 
 def _build_full_cpm():
-    """Integer levels plus half-levels (sqrt of the mean of the two adjacent squares)."""
+    """Integer levels plus half-levels (sqrt of the mean of the two adjacent squares).
+
+    The half-level relation is verified against real screenshots: a 15/15/15
+    Alakazam (271/167/146) at L28.5 reproduces its in-game CP 2490 / HP 114
+    exactly under this formula with game-master integer CPMs.
+    """
     full = {}
     levels = sorted(INT_CPM)
     for lvl in levels:

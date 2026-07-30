@@ -42,20 +42,35 @@ def _species_stats(species_db, name):
     return species_db[key]
 
 
-BAR_MISMATCH_MAX_DISTANCE = 6  # sum of |delta| across the 3 stats we'll still trust
+def _candidate_forms(species_db, name):
+    """Every stat-line this caption could refer to, default form first.
 
-# NOTE on a dead end (kept as a comment so it isn't re-tried): a batch of real
-# screenshots that failed to reconcile bars with CP/HP were investigated for
-# every plausible cause -- legendary/mythical status (disproven: Solgaleo,
-# Palkia, Giratina, Tyranitar all resolve cleanly through this exact same
-# formula), a shadow-Pokemon stat multiplier (tested numerically, produced
-# zero valid combos, even further off), a CP-digit OCR misread (disproven --
-# cross-checked against the CP read directly off the screenshot by eye, which
-# matched OCR exactly), and +-1 per-bar quantization noise (tested, no
-# combination reconciles). None of these explain the residual cases. See
-# references/calibration.md's "unresolved ambiguity" section for the honest
-# writeup -- this remains an open question, not a solved one, and should NOT
-# be "corrected" by silently overriding the OCR'd CP with a nearby guess.
+    The bottom caption says only "This Dialga was caught..." -- it cannot
+    distinguish Origin Forme from Altered/normal, and the same is true of
+    every other multi-form species (Giratina, Hisuian/Alolan regionals,
+    Therian formes...). Base stats differ per form, so picking the default
+    form and hoping is a coin flip. Instead, hand every form's stat line to
+    the solver and let the CP/HP/bar reconciliation choose -- a wrong form
+    almost never reproduces the exact bar reading, so the right one
+    identifies itself.
+    """
+    base = name.lower().replace(" ", "_")
+    keys = [base] if base in species_db else []
+    keys += sorted(k for k in species_db if k.startswith(base + "_") and k != base)
+    if not keys:
+        raise KeyError(f"unknown species '{name}' -- not found in data/species.json")
+    seen, forms = set(), []
+    for key in keys:
+        stats = species_db[key]
+        fingerprint = (stats["atk"], stats["def"], stats["sta"])
+        if fingerprint in seen:
+            continue  # aliases of the same stat line (e.g. "dialga" == "dialga_dialga_normal")
+        seen.add(fingerprint)
+        forms.append((key, stats))
+    return forms
+
+
+BAR_MISMATCH_MAX_DISTANCE = 6  # sum of |delta| across the 3 stats we'll still trust
 
 
 def scan_profile(image_path):
@@ -64,32 +79,47 @@ def scan_profile(image_path):
 
     result = read_profile.read_profile_screenshot(image_path)
     species_db = _load_species()
-    stats = _species_stats(species_db, result["species"])
+    forms = _candidate_forms(species_db, result["species"])
+    bar_ivs = (result["iv_a"], result["iv_d"], result["iv_s"])
 
-    combos_cp = S.reverse_solve(
-        stats["atk"], stats["def"], stats["sta"], result["cp"],
-        iv_floor=(0, 0, 0),
-    )
-    if not combos_cp:
+    # Try every form this caption could mean. A form whose base stats
+    # reproduce the exact bar reading at some level (matching CP, and HP when
+    # we read it) has effectively identified itself -- a wrong form's stat
+    # line almost never lands on the same three integers by chance.
+    form_key = None
+    stats = None
+    combos = combos_hp = None
+    exact = []
+    for candidate_key, candidate_stats in forms:
+        cand_cp = S.reverse_solve(
+            candidate_stats["atk"], candidate_stats["def"], candidate_stats["sta"],
+            result["cp"], iv_floor=(0, 0, 0),
+        )
+        cand_hp = None
+        if result["hp"] is not None:
+            cand_hp = S.reverse_solve(
+                candidate_stats["atk"], candidate_stats["def"], candidate_stats["sta"],
+                result["cp"], iv_floor=(0, 0, 0), hp=result["hp"],
+            )
+        cand_combos = cand_hp if cand_hp else cand_cp
+        cand_exact = [c for c in cand_combos if c[1:] == bar_ivs]
+        # First form that reconciles exactly wins; otherwise keep the first
+        # form that at least has candidate combos, for the fallback path.
+        if cand_exact and not exact:
+            form_key, stats, combos, combos_hp, exact = (
+                candidate_key, candidate_stats, cand_combos, cand_hp, cand_exact,
+            )
+        elif stats is None and cand_combos:
+            form_key, stats, combos, combos_hp = (
+                candidate_key, candidate_stats, cand_combos, cand_hp,
+            )
+
+    if stats is None:
         raise read_profile.ReadError(
             f"no IV combo at any level reproduces CP {result['cp']} for "
-            f"{result['species']} -- check the species (forms share the caption "
-            "name but not base stats) or re-check the CP digits"
+            f"{result['species']} (tried {len(forms)} form(s): "
+            f"{', '.join(k for k, _ in forms)}) -- re-check the CP digits"
         )
-
-    # HP OCR is a second independent digit-only read (like CP) -- when it
-    # parsed at all, prefer the CP+HP-consistent subset over CP alone, since
-    # that pins down the stamina IV exactly rather than leaving it to guesswork.
-    combos_hp = None
-    if result["hp"] is not None:
-        combos_hp = S.reverse_solve(
-            stats["atk"], stats["def"], stats["sta"], result["cp"],
-            iv_floor=(0, 0, 0), hp=result["hp"],
-        )
-    combos = combos_hp if combos_hp else combos_cp
-
-    bar_ivs = (result["iv_a"], result["iv_d"], result["iv_s"])
-    exact = [c for c in combos if c[1:] == bar_ivs]
 
     note = None
     if len(exact) == 1:
@@ -135,8 +165,11 @@ def scan_profile(image_path):
     assert check_cp == result["cp"], (check_cp, result["cp"])
 
     stars = S.star_rating(iv_pct)
+    # Only worth naming the form when the species actually has more than one
+    # -- "Machamp (machamp)" is noise, "Dialga (dialga_dialga_origin)" isn't.
+    form_label = f" [{form_key}]" if len(forms) > 1 else ""
     summary = (
-        f"{result['species']} · L{int(level) if level == int(level) else level} · "
+        f"{result['species']}{form_label} · L{int(level) if level == int(level) else level} · "
         f"{iv_a}/{iv_d}/{iv_s} · {iv_pct}% "
         f"({stars}★) · CP {result['cp']}"
     )
@@ -145,6 +178,8 @@ def scan_profile(image_path):
     return {
         "mode": "profile",
         "species": result["species"],
+        "form": form_key,
+        "forms_considered": [k for k, _ in forms],
         "level": level,
         "iv_a": iv_a,
         "iv_d": iv_d,

@@ -44,6 +44,19 @@ def _species_stats(species_db, name):
 
 BAR_MISMATCH_MAX_DISTANCE = 6  # sum of |delta| across the 3 stats we'll still trust
 
+# NOTE on a dead end (kept as a comment so it isn't re-tried): a batch of real
+# screenshots that failed to reconcile bars with CP/HP were investigated for
+# every plausible cause -- legendary/mythical status (disproven: Solgaleo,
+# Palkia, Giratina, Tyranitar all resolve cleanly through this exact same
+# formula), a shadow-Pokemon stat multiplier (tested numerically, produced
+# zero valid combos, even further off), a CP-digit OCR misread (disproven --
+# cross-checked against the CP read directly off the screenshot by eye, which
+# matched OCR exactly), and +-1 per-bar quantization noise (tested, no
+# combination reconciles). None of these explain the residual cases. See
+# references/calibration.md's "unresolved ambiguity" section for the honest
+# writeup -- this remains an open question, not a solved one, and should NOT
+# be "corrected" by silently overriding the OCR'd CP with a nearby guess.
+
 
 def scan_profile(image_path):
     import read_profile
@@ -89,12 +102,11 @@ def scan_profile(image_path):
     else:
         # The bar-measured IVs don't land on any level that reproduces this
         # CP (and HP, if OCR'd) exactly. CP/HP come from plain digit OCR
-        # (reliable once it parses at all), while bar pixel-reading is the
-        # noisier signal -- so fall back to the CP(+HP)-consistent combo
-        # closest to what the bars measured, rather than hard-failing on
-        # what's usually a 1-2-point misread of a single bar (e.g. a
-        # background/lighting quirk making a partial fill look fuller than
-        # it is).
+        # (reliable once it parsed at all -- and in the cases that motivated
+        # this comment, independently confirmed correct by eye), while bar
+        # pixel-reading is the noisier signal -- so fall back to the
+        # CP(+HP)-consistent combo closest to what the bars measured, rather
+        # than hard-failing on what's usually a small misread of a bar.
         def distance(c):
             _, a, d, s = c
             return abs(a - bar_ivs[0]) + abs(d - bar_ivs[1]) + abs(s - bar_ivs[2])

@@ -14,6 +14,30 @@ tool for the arithmetic that must not be done by hand.
 identically here: never present an estimate as an exact IV, and a wild encounter never
 gets a single IV% number.
 
+## Capabilities menu (read this first)
+
+  - **A) Scan a profile screenshot** (appraisal open) -> Mode A below. Exact species,
+    level, IV A/D/S, IV%, CP, HP, star rating.
+  - **B) Scan an encounter screenshot** (pre-catch) -> Mode B below. Honest IV% range,
+    never a single number.
+  - **C) Roster: view / sort / filter** scanned Pokemon -> see "The running roster" and
+    `references/roster.md`. Sort by CP or IV%, either direction; filter by IV% threshold.
+  - **D) Forward/reverse CP-HP solve** -> `forwardSolve` / `reverseSolve` in
+    `references/solver.js`. Given known IVs+level -> CP/HP, or given CP(+HP) -> every
+    matching (level, IVs) combo.
+  - **E) Power-up cost calculator** -> `powerupCost(fromLevel, toLevel, {lucky, shadow,
+    purified})` in `references/solver.js`. Stardust + candy required between two levels
+    (1.0-40.5). Candy costs at/above level 39 are flagged `approximate: true` in the
+    result -- say so if asked about that range.
+  - **F) Max level under a CP cap, plus cost to get there** -> `maxLevelUnderCp(baseAtk,
+    baseDef, baseSta, ivA, ivD, ivS, cpCap)` then `powerupCost(currentLevel, thatLevel)`.
+    e.g. "what's the highest level I can take this to and stay under 2500 CP, and what
+    will that cost from here?"
+  - **G) Best moveset lookup** -> live web search (this is meta-dependent DPS/PvP ranking
+    data from sites like PvPoke/GamePress/LeekDuck, not a formula -- look it up fresh each
+    time rather than guessing or relying on stale training knowledge, and say which source
+    you used).
+
 ## Division of labour: vision vs. code execution
 
 - **Vision does**: reading the CP number, the HP number, the bottom caption text, the
@@ -90,7 +114,7 @@ the exact-IV roster unless the user explicitly asks you to log them as a range e
 1. Re-print the **entire updated roster** as a markdown table so it stays visible in the
    conversation history for you to re-read on the next turn. Do not just print the new
    entry -- earlier entries must not be lost.
-2. Table columns: `Species | Level | IV (A/D/S) | IV% | CP | HP`.
+2. Table columns, in this exact order: `Species | CP | IV% | IV (A/D/S) | HP | Level`.
 3. If the same species+CP+IV combination the user scans again is already in the roster,
    don't duplicate it -- ask if it's the same Pokemon or a new catch with identical rolls.
 

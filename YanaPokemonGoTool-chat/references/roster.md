@@ -66,7 +66,7 @@ first, then apply the requested sort/direction to the filtered set.
 Always a markdown table, columns in this order:
 
 ```
-| Species | Level | IV (A/D/S) | IV% | CP | HP |
+| Species | CP | IV% | IV (A/D/S) | HP | Level |
 ```
 
 Do not add extra columns (star rating, date scanned, etc.) unless the user asks -- keep

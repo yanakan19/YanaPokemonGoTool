@@ -104,6 +104,68 @@ function starRating(ivPct) {
   return 1;
 }
 
+// Highest level (from ALL_LEVELS) at which this exact IV combo's CP stays
+// <= cpCap. CP is monotonic in level for fixed IVs, so this can stop at the
+// first level that exceeds the cap. Returns null if even level 1 exceeds it.
+function maxLevelUnderCp(baseAtk, baseDef, baseSta, ivA, ivD, ivS, cpCap) {
+  let best = null;
+  for (const level of ALL_LEVELS) {
+    const cp = cpFormula(baseAtk, baseDef, baseSta, ivA, ivD, ivS, level);
+    if (cp <= cpCap) best = level;
+    else break;
+  }
+  return best;
+}
+
+// Stardust/candy power-up cost table. Source: reverse-engineered by the
+// community, published at https://github.com/mathiasbynens/pogopowerupcost
+// -- verified against a real gameinfo.io screenshot showing 190,000 stardust
+// for a 25.5->40 power-up path (this table reproduces that exactly). Candy
+// costs at/above level 39 are flagged approximate (the source repo itself
+// marks that tier unconfirmed). Levels above 40.5 (Best Buddy/XL Candy) are
+// not included -- never published by Niantic, no reliable source found.
+const COST_PER_POWERUP = {
+  1.0: [200, 1], 1.5: [200, 1], 2.0: [200, 1], 2.5: [200, 1],
+  3.0: [400, 1], 3.5: [400, 1], 4.0: [400, 1], 4.5: [400, 1],
+  5.0: [600, 1], 5.5: [600, 1], 6.0: [600, 1], 6.5: [600, 1],
+  7.0: [800, 1], 7.5: [800, 1], 8.0: [800, 1], 8.5: [800, 1],
+  9.0: [1000, 1], 9.5: [1000, 1], 10.0: [1000, 1], 10.5: [1000, 1],
+  11.0: [1300, 2], 11.5: [1300, 2], 12.0: [1300, 2], 12.5: [1300, 2],
+  13.0: [1600, 2], 13.5: [1600, 2], 14.0: [1600, 2], 14.5: [1600, 2],
+  15.0: [1900, 2], 15.5: [1900, 2], 16.0: [1900, 2], 16.5: [1900, 2],
+  17.0: [2200, 2], 17.5: [2200, 2], 18.0: [2200, 2], 18.5: [2200, 2],
+  19.0: [2500, 2], 19.5: [2500, 2], 20.0: [2500, 2], 20.5: [2500, 2],
+  21.0: [3000, 3], 21.5: [3000, 3], 22.0: [3000, 3], 22.5: [3000, 3],
+  23.0: [3500, 3], 23.5: [3500, 3], 24.0: [3500, 3], 24.5: [3500, 3],
+  25.0: [4000, 3], 25.5: [4000, 3], 26.0: [4000, 3], 26.5: [4000, 3],
+  27.0: [4500, 3], 27.5: [4500, 3], 28.0: [4500, 3], 28.5: [4500, 3],
+  29.0: [5000, 4], 29.5: [5000, 4], 30.0: [5000, 4], 30.5: [5000, 4],
+  31.0: [6000, 6], 31.5: [6000, 6], 32.0: [6000, 6], 32.5: [6000, 6],
+  33.0: [7000, 8], 33.5: [7000, 8], 34.0: [7000, 8], 34.5: [7000, 8],
+  35.0: [8000, 10], 35.5: [8000, 10], 36.0: [8000, 10], 36.5: [8000, 10],
+  37.0: [9000, 12], 37.5: [9000, 12], 38.0: [9000, 12], 38.5: [9000, 12],
+  39.0: [10000, 15], 39.5: [10000, 15], 40.0: [10000, 15], 40.5: [10000, 15],
+};
+const MAX_KNOWN_LEVEL = 40.5;
+const UNCONFIRMED_FROM = 39.0;
+
+function powerupCost(fromLevel, toLevel, { lucky = false, shadow = false, purified = false } = {}) {
+  if (toLevel <= fromLevel) throw new Error("toLevel must be greater than fromLevel");
+  if (toLevel > MAX_KNOWN_LEVEL) throw new Error(`no verified cost data above level ${MAX_KNOWN_LEVEL}`);
+  let dust = 0, candy = 0, approximate = false;
+  for (let lvl = fromLevel; lvl < toLevel; lvl = Math.round((lvl + 0.5) * 10) / 10) {
+    if (!(lvl in COST_PER_POWERUP)) throw new Error(`level ${lvl} not in cost table`);
+    const [d, c] = COST_PER_POWERUP[lvl];
+    if (lvl >= UNCONFIRMED_FROM) approximate = true;
+    dust += d;
+    candy += c;
+  }
+  if (shadow) { dust = Math.round(dust * 1.2); candy = Math.round(candy * 1.2); }
+  else if (purified) { dust = Math.ceil(dust * 0.9); candy = Math.ceil(candy * 0.9); }
+  if (lucky) dust = Math.round(dust * 0.5);
+  return { stardust: dust, candy, approximate };
+}
+
 // --- Self-check against the two validated fixtures. Run this first; if it
 // throws, do not trust any other output from this file in this session. ---
 function selfTest() {
@@ -117,10 +179,13 @@ function selfTest() {
   }
   if (ivPercent(14, 15, 10) !== 87) throw new Error("IV% formula failed on 14/15/10");
   if (ivPercent(13, 14, 13) !== 89) throw new Error("IV% formula failed on 13/14/13");
+  const cost = powerupCost(25.5, 40.0);
+  if (cost.stardust !== 190000) throw new Error(`powerupCost fixture failed: got ${cost.stardust}, expected 190000`);
   return "solver.js self-test passed";
 }
 
 module.exports = {
   CPM, ALL_LEVELS, cpFormula, hpFormula, ivPercent, forwardSolve,
-  reverseSolve, hundoCp, isGuaranteedHundo, starRating, selfTest,
+  reverseSolve, hundoCp, isGuaranteedHundo, starRating, maxLevelUnderCp,
+  COST_PER_POWERUP, powerupCost, selfTest,
 };

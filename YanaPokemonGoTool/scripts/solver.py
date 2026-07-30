@@ -127,3 +127,18 @@ def max_cp_is_unique(base_atk, base_def, base_sta, level, iv_floor=(0, 0, 0)):
     top_cp = hundo_cp(base_atk, base_def, base_sta, level)
     combos = reverse_solve(base_atk, base_def, base_sta, top_cp, levels=[level], iv_floor=iv_floor)
     return len(combos) == 1 and combos[0][1:] == (15, 15, 15)
+
+
+def max_level_under_cp(base_atk, base_def, base_sta, iv_a, iv_d, iv_s, cp_cap):
+    """Highest level (from ALL_LEVELS) at which this exact IV combo's CP stays <= cp_cap.
+
+    Returns None if even level 1 exceeds cp_cap (undersized cap for this species).
+    """
+    best = None
+    for level in ALL_LEVELS:
+        cp = cp_formula(base_atk, base_def, base_sta, iv_a, iv_d, iv_s, level)
+        if cp <= cp_cap:
+            best = level
+        else:
+            break  # CP is monotonic in level for fixed IVs
+    return best

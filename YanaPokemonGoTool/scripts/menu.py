@@ -36,6 +36,19 @@ YanaPokemonGoTool -- capabilities
      each time from PvPoke/GamePress/LeekDuck rather than hardcoded, so it stays
      current. Not backed by a local script.
 
+  H) Evolution calculator                         -> solver.evolve(new_base_atk, new_base_def,
+     new_base_sta, iv_a, iv_d, iv_s, level)
+     Evolution keeps IVs and level unchanged -- only base stats change, so this
+     is forward_solve against the evolved form's stats. Look up the evolved
+     species' base stats in data/species.json first.
+
+  I) Shadow / Purified calculator                 -> solver.shadow_stats(...),
+     solver.purify_ivs(...), solver.purify_cost(rarity), solver.purify_forward_solve(...)
+     Shadow: base stats x1.2 attack / x5/6 defense (community-sourced, not in
+     the game master -- flag as such). Purified: +2 per IV (capped 15) on top
+     of the UN-shadowed base stats, plus a flat stardust/candy cost by rarity
+     tier ('common'/'rare'/'legendary') -- not level-dependent like power-ups.
+
 Call self_test() below before trusting any solver output in a new session.
 """
 
@@ -53,6 +66,16 @@ def self_test():
 
     lvl = S.max_level_under_cp(275, 211, 205, 14, 11, 10, 2500)
     assert lvl is not None and S.cp_formula(275, 211, 205, 14, 11, 10, lvl) <= 2500
+
+    # CPM regression: this exact case caught a corrupted CPM table once --
+    # a real 15/15/15 must reproduce CP 2490 / HP 114, not ~93%.
+    assert S.forward_solve(271, 167, 146, 15, 15, 15, 28.5) == (2490, 114)
+
+    assert S.evolve(247, 172, 181, 15, 15, 14, 22.0) == (1964, 122)
+    assert S.shadow_stats(234, 159, 207) == (280, 132, 207)
+    assert S.purify_ivs(15, 12, 15) == (15, 14, 15)
+    assert S.purify_ivs(13, 13, 13) == (15, 15, 15)
+    assert S.purify_cost("legendary") == {"stardust": 20000, "candy": 1}
 
     return "menu.py self-test passed"
 

@@ -9,20 +9,29 @@
  *   2. Call forwardSolve(...) / reverseSolve(...) / hundoCp(...) as needed.
  */
 
-// Integer-level CPMs from the game master (validated ground truth -- do not
-// substitute a value from a blog/SEO calculator).
+// Integer-level CPMs, pulled verbatim from the PokeMiners game master (see
+// YanaPokemonGoTool/data/species.json's "cpm" key, the authoritative source).
+//
+// A PREVIOUS version of this table was silently wrong across levels 16-29
+// and 31-41 (e.g. L20 was 0.5977679 instead of the real 0.5974, L28 was
+// 0.7100906 instead of 0.7068842) -- small errors that shift computed CP by
+// 10-25 points, enough to make a genuine 15/15/15 fail to reconcile and get
+// reported as ~93% instead of 100%. The anchors at L1/10/15/30/35/40/45
+// happened to be correct in that version, which is exactly why it passed
+// spot-checks. Verify the WHOLE curve against the game master if this table
+// is ever touched again, never a handful of round levels.
 const INT_CPM = {
   1: 0.094, 2: 0.16639787, 3: 0.21573247, 4: 0.25572005, 5: 0.29024988,
   6: 0.3210876, 7: 0.34921268, 8: 0.3752356, 9: 0.39956728, 10: 0.4225,
-  11: 0.44310755, 12: 0.46279839, 13: 0.48168495, 14: 0.49985844, 15: 0.51739395,
-  16: 0.5343277, 17: 0.5507927, 18: 0.5668094, 19: 0.5824596, 20: 0.5977679,
-  21: 0.6127566, 22: 0.6274445, 23: 0.6418475, 24: 0.6559804, 25: 0.6698589,
-  26: 0.6834955, 27: 0.6969034, 28: 0.7100906, 29: 0.7230753, 30: 0.7317,
-  31: 0.73776948, 32: 0.74378943, 33: 0.74976104, 34: 0.75568551, 35: 0.76156384,
-  36: 0.76739717, 37: 0.7731865, 38: 0.77893275, 39: 0.78463697, 40: 0.7903,
-  41: 0.79530001, 42: 0.8003, 43: 0.8053, 44: 0.8103, 45: 0.8153,
-  46: 0.8203, 47: 0.8253, 48: 0.8303, 49: 0.8353, 50: 0.84029999,
-  51: 0.84529999,
+  11: 0.44310755, 12: 0.4627984, 13: 0.48168495, 14: 0.49985844, 15: 0.51739395,
+  16: 0.5343543, 17: 0.5507927, 18: 0.5667545, 19: 0.5822789, 20: 0.5974,
+  21: 0.6121573, 22: 0.6265671, 23: 0.64065295, 24: 0.65443563, 25: 0.667934,
+  26: 0.6811649, 27: 0.69414365, 28: 0.7068842, 29: 0.7193991, 30: 0.7317,
+  31: 0.7377695, 32: 0.74378943, 33: 0.74976104, 34: 0.7556855, 35: 0.76156384,
+  36: 0.76739717, 37: 0.7731865, 38: 0.77893275, 39: 0.784637, 40: 0.7903,
+  41: 0.7953, 42: 0.8003, 43: 0.8053, 44: 0.8103, 45: 0.8153,
+  46: 0.8203, 47: 0.8253, 48: 0.8303, 49: 0.8353, 50: 0.8403,
+  51: 0.8453,
 };
 
 function buildFullCpm() {
@@ -166,6 +175,59 @@ function powerupCost(fromLevel, toLevel, { lucky = false, shadow = false, purifi
   return { stardust: dust, candy, approximate };
 }
 
+// Evolution keeps IVs and level unchanged -- only base stats change. Named
+// separately from forwardSolve so "what will this be after I evolve it"
+// reads as its own capability.
+function evolve(newBaseAtk, newBaseDef, newBaseSta, ivA, ivD, ivS, level) {
+  return forwardSolve(newBaseAtk, newBaseDef, newBaseSta, ivA, ivD, ivS, level);
+}
+
+// Shadow Pokemon stat multipliers, applied to base stats before IVs are
+// added. A real, documented Niantic mechanic (distinct from the CP/HP
+// formula, which doesn't change) -- community-reverse-engineered and widely
+// corroborated (GamePress/PvPoke/Silph Road agree), NOT officially published
+// by Niantic, so treat as well-supported rather than certain.
+const SHADOW_ATK_MULTIPLIER = 1.2;
+const SHADOW_DEF_MULTIPLIER = 5 / 6; // ~0.833333
+
+// Purification: +2 to each IV, capped at 15. Also community-sourced.
+const PURIFY_IV_BONUS = 2;
+
+// Purification stardust/candy cost -- flat per rarity tier (NOT level-
+// dependent, unlike power-up costs). Community-sourced, less exhaustively
+// cross-checked than the power-up table -- treat as approximate.
+const PURIFY_COST = {
+  common: { stardust: 1000, candy: 1 },
+  rare: { stardust: 3000, candy: 1 },
+  legendary: { stardust: 20000, candy: 1 },
+};
+
+function shadowStats(baseAtk, baseDef, baseSta) {
+  return {
+    atk: Math.floor(baseAtk * SHADOW_ATK_MULTIPLIER),
+    def: Math.floor(baseDef * SHADOW_DEF_MULTIPLIER),
+    sta: baseSta,
+  };
+}
+
+function purifyIvs(ivA, ivD, ivS) {
+  return [ivA, ivD, ivS].map((iv) => Math.min(15, iv + PURIFY_IV_BONUS));
+}
+
+function purifyCost(rarity) {
+  if (!(rarity in PURIFY_COST)) throw new Error(`unknown rarity '${rarity}', expected one of ${Object.keys(PURIFY_COST)}`);
+  return { ...PURIFY_COST[rarity] };
+}
+
+// CP/HP after purifying: un-shadow the base stats (caller passes the NORMAL,
+// not shadow-multiplied, base stats -- purification removes the shadow
+// modifier as a separate step from the IV bonus), apply the +2-per-IV bonus,
+// forward-solve at the same level (purification doesn't change level).
+function purifyForwardSolve(baseAtk, baseDef, baseSta, ivA, ivD, ivS, level) {
+  const [newA, newD, newS] = purifyIvs(ivA, ivD, ivS);
+  return forwardSolve(baseAtk, baseDef, baseSta, newA, newD, newS, level);
+}
+
 // --- Self-check against the two validated fixtures. Run this first; if it
 // throws, do not trust any other output from this file in this session. ---
 function selfTest() {
@@ -181,11 +243,18 @@ function selfTest() {
   if (ivPercent(13, 14, 13) !== 89) throw new Error("IV% formula failed on 13/14/13");
   const cost = powerupCost(25.5, 40.0);
   if (cost.stardust !== 190000) throw new Error(`powerupCost fixture failed: got ${cost.stardust}, expected 190000`);
+  // Alakazam hundo regression: this is the exact case that caught the
+  // corrupted CPM table -- a real 15/15/15 must reproduce CP 2490/HP 114.
+  const ak = forwardSolve(271, 167, 146, 15, 15, 15, 28.5);
+  if (ak.cp !== 2490 || ak.hp !== 114) {
+    throw new Error(`CPM regression: Alakazam hundo gave CP ${ak.cp}/HP ${ak.hp}, expected 2490/114`);
+  }
   return "solver.js self-test passed";
 }
 
 module.exports = {
   CPM, ALL_LEVELS, cpFormula, hpFormula, ivPercent, forwardSolve,
   reverseSolve, hundoCp, isGuaranteedHundo, starRating, maxLevelUnderCp,
-  COST_PER_POWERUP, powerupCost, selfTest,
+  COST_PER_POWERUP, powerupCost, evolve, shadowStats, purifyIvs, purifyCost,
+  purifyForwardSolve, selfTest,
 };

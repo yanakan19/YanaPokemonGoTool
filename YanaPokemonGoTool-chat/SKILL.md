@@ -37,6 +37,17 @@ gets a single IV% number.
     data from sites like PvPoke/GamePress/LeekDuck, not a formula -- look it up fresh each
     time rather than guessing or relying on stale training knowledge, and say which source
     you used).
+  - **H) Evolution calculator** -> `evolve(newBaseAtk, newBaseDef, newBaseSta, ivA, ivD, ivS,
+    level)` in `references/solver.js`. Evolution keeps IVs and level unchanged -- only base
+    stats change -- so look up the evolved species' base stats in `references/species.json`
+    and forward-solve against those.
+  - **I) Shadow / Purified calculator** -> `shadowStats(...)`, `purifyIvs(...)`,
+    `purifyCost(rarity)`, `purifyForwardSolve(...)` in `references/solver.js`. Shadow
+    multipliers (atk x1.2, def x5/6) and the purify +2-per-IV bonus are real Niantic
+    mechanics but community-reverse-engineered, not officially published -- say so rather
+    than presenting them with the same certainty as the CP/HP formula itself. Purify cost
+    is a flat stardust/candy amount per rarity tier ('common'/'rare'/'legendary'), not
+    level-dependent like power-up costs.
 
 ## Division of labour: vision vs. code execution
 

@@ -30,6 +30,16 @@ no ML, no sprite matching required for the common case.
   - **G) Best moveset lookup** -> live web search/fetch (this is meta-dependent DPS/PvP
     ranking data from sites like PvPoke/GamePress/LeekDuck, not a formula -- look it up
     fresh each time and cite the source rather than hardcoding it).
+  - **H) Evolution calculator** -> `solver.evolve(new_base_atk, new_base_def, new_base_sta,
+    iv_a, iv_d, iv_s, level)`. Evolution keeps IVs and level unchanged -- only base stats
+    change -- so this is `forward_solve` against the evolved form's stats. Look up the
+    evolved species' base stats in `data/species.json` first.
+  - **I) Shadow / Purified calculator** -> `solver.shadow_stats(...)`, `solver.purify_ivs(...)`,
+    `solver.purify_cost(rarity)`, `solver.purify_forward_solve(...)`. Shadow multipliers
+    (atk x1.2, def x5/6) and the purify +2-per-IV bonus are real Niantic mechanics but
+    community-reverse-engineered, not in the game master -- flag them as such rather than
+    presenting them with the same certainty as the CPM table. Purify cost is a flat
+    stardust/candy amount per rarity tier ('common'/'rare'/'legendary'), not level-dependent.
 
 Run `python3 scripts/menu.py` to print this list plus a self-test of the solver/cost-table
 functions -- do this once per session before trusting any output.

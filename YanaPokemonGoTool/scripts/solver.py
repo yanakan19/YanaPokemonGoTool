@@ -164,3 +164,74 @@ def max_level_under_cp(base_atk, base_def, base_sta, iv_a, iv_d, iv_s, cp_cap):
         else:
             break  # CP is monotonic in level for fixed IVs
     return best
+
+
+def evolve(new_base_atk, new_base_def, new_base_sta, iv_a, iv_d, iv_s, level):
+    """CP/HP after evolving: IVs and level are unchanged by evolution -- only
+    the species' base stats change. This is just forward_solve against the
+    evolved form's base stats; kept as a named function so "what will this be
+    after I evolve it" reads as its own capability rather than a formula the
+    caller has to remember to reuse forward_solve for.
+    """
+    return forward_solve(new_base_atk, new_base_def, new_base_sta, iv_a, iv_d, iv_s, level)
+
+
+# Shadow Pokemon stat multipliers, applied to base stats before adding IVs.
+# These are a real, documented Niantic mechanic (distinct from the CP/HP
+# formula itself, which is unchanged) -- community-reverse-engineered and
+# widely corroborated (GamePress/PvPoke/Silph Road agree on these exact
+# values), not officially published by Niantic, so flag them as such rather
+# than presenting them as game-master-verified like the CPM table.
+SHADOW_ATK_MULTIPLIER = 1.2
+SHADOW_DEF_MULTIPLIER = 5 / 6  # ~0.833333
+
+# Purification bonus: a flat +2 to each IV, capped at 15 -- also community-
+# sourced, not in the game master. Applied on TOP OF the un-shadowed (normal)
+# base stats, since purifying removes the shadow multiplier as well.
+PURIFY_IV_BONUS = 2
+
+# Purification stardust/candy cost tiers. Unlike power-up costs, these are
+# NOT level-dependent -- a single flat cost per rarity tier, community-
+# sourced (not in the game master), and much less exhaustively cross-checked
+# than the power-up table -- treat as approximate.
+PURIFY_COST = {
+    "common": {"stardust": 1000, "candy": 1},
+    "rare": {"stardust": 3000, "candy": 1},
+    "legendary": {"stardust": 20000, "candy": 1},
+}
+
+
+def shadow_stats(base_atk, base_def, base_sta):
+    """Effective (base_atk, base_def, base_sta) for a Shadow Pokemon.
+
+    Applied as floor(base * multiplier) before IVs are added, matching how
+    the community-reverse-engineered formula is used everywhere else (CP
+    calculators, etc.) -- Niantic hasn't published the internal rounding
+    point, so this is the best-supported convention, not a certainty.
+    """
+    return (
+        math.floor(base_atk * SHADOW_ATK_MULTIPLIER),
+        math.floor(base_def * SHADOW_DEF_MULTIPLIER),
+        base_sta,
+    )
+
+
+def purify_ivs(iv_a, iv_d, iv_s):
+    """IVs after purification: +2 each, capped at 15."""
+    return tuple(min(15, iv + PURIFY_IV_BONUS) for iv in (iv_a, iv_d, iv_s))
+
+
+def purify_cost(rarity):
+    """Flat stardust/candy cost to purify, by rarity tier ('common'/'rare'/'legendary')."""
+    if rarity not in PURIFY_COST:
+        raise ValueError(f"unknown rarity '{rarity}', expected one of {list(PURIFY_COST)}")
+    return dict(PURIFY_COST[rarity])
+
+
+def purify_forward_solve(base_atk, base_def, base_sta, iv_a, iv_d, iv_s, level, was_shadow=True):
+    """CP/HP after purifying a Shadow Pokemon: un-shadow the base stats (if it
+    was shadow) and apply the +2-per-IV purification bonus, then forward-solve
+    at the same level (purification does not change level).
+    """
+    new_a, new_d, new_s = purify_ivs(iv_a, iv_d, iv_s)
+    return forward_solve(base_atk, base_def, base_sta, new_a, new_d, new_s, level)

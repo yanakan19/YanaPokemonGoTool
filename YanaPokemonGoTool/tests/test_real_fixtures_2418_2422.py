@@ -83,16 +83,22 @@ def test_machamp_2421_shifted_bars_box():
     assert result["hp_check"] == 177
 
 
-def test_dialga_2422_falls_back_to_cp_hp_consistent_combo():
-    """The Defense bar reads as fully filled but no combo with defense=15
-    reproduces this CP+HP for either known Dialga form -- scan_profile must
-    fall back to the closest CP+HP-consistent combo and flag it via `note`,
-    not crash and not silently report the unverifiable bar-read IVs."""
+def test_dialga_2422_resolves_exactly_as_origin_forme():
+    """This Dialga's Defense bar reads as fully filled (15/15) -- which
+    doesn't reconcile against normal-form base stats at this CP+HP, since the
+    caption alone can't tell Origin Forme from normal. Two bugs used to
+    compound here: a corrupted CPM table at this level range, and
+    scan_profile trying only the default (normal) form. Fixed, this now
+    resolves EXACTLY as Origin Forme with no fallback/note needed -- and
+    matches the 91% this Pokemon's owner had already seen on another site,
+    which this tool previously (wrongly) contradicted."""
     import scan
     result = scan.scan_profile(str(FIXTURES / "IMG_2422.PNG"))
     assert result["species"] == "Dialga"
+    assert result["form"] == "dialga_dialga_origin"
     assert result["cp"] == 2949
     assert result["hp_ocr"] == 146
     assert result["hp_check"] == 146
-    assert result["note"] is not None
-    assert "15" in result["note"]  # names the bar-measured defense of 15
+    assert result["note"] is None
+    assert (result["iv_a"], result["iv_d"], result["iv_s"]) == (14, 15, 12)
+    assert result["iv_pct"] == 91
